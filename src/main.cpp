@@ -7,64 +7,60 @@
 
 #include <DeckLinkAPI.h>
 
-#if defined(__APPLE__)
-#include <string.h>
-
+#ifdef _WIN32
 //=====================================================================================================================
-#define STDMETHODCALLTYPE
-
-//---------------------------------------------------------------------------------------------------------------------
-const REFIID IID_IUnknown = CFUUIDGetUUIDBytes(IUnknownUUID);
-
-//---------------------------------------------------------------------------------------------------------------------
-inline bool IsEqualGUID( const CFUUIDBytes& a, const CFUUIDBytes& b )
+inline IDeckLinkDiscovery* CreateDiscoveryInst()
 {
-  return memcmp( &a, &b, sizeof(CFUUIDBytes) ) == 0;
+    LPVOID  p = NULL;
+    HRESULT  hr = CoCreateInstance(
+                                CLSID_CDeckLinkDiscovery,  NULL,  CLSCTX_ALL,
+                                IID_IDeckLinkDiscovery,  &p
+                                );
+
+    if ( FAILED(hr) )
+    {
+        throw std::runtime_error("creating IDeckLinkDiscovery failed");
+    }
+
+    assert( p != NULL );
+    return  static_cast<IDeckLinkDiscovery*>(p);
 }
 
-#elif defined(__linux__)
-#include <string.h>
+//---------------------------------------------------------------------------------------------------------------------
+inline void InitCom()  { CoInitialize(NULL); } //  Initialize COM on this thread
 
+#else
 //=====================================================================================================================
 #define STDMETHODCALLTYPE
 
 //---------------------------------------------------------------------------------------------------------------------
 inline bool IsEqualGUID( const REFIID& a, const REFIID& b )
 {
-  return memcmp( &a, &b, sizeof(REFIID) ) == 0;
+    return memcmp( &a, &b, sizeof(REFIID) ) == 0;
 }
-#endif
 
-//=====================================================================================================================
+//---------------------------------------------------------------------------------------------------------------------
 inline IDeckLinkDiscovery* CreateDiscoveryInst()
 {
-#ifdef _WIN32
-    //-----------------------------------------------------------------------------------------------------------------
-	LPVOID  p = NULL;
-	HRESULT  hr = CoCreateInstance(
-				CLSID_CDeckLinkDiscovery,  NULL,  CLSCTX_ALL,
-				IID_IDeckLinkDiscovery,  &p
-				);
+    IDeckLinkDiscovery* p = CreateDeckLinkDiscoveryInstance();
 
-	if ( FAILED(hr) )
-	{
-		throw std::runtime_error("creating IDeckLinkDiscovery failed");
-	}
+    if( p == NULL )
+    {
+        throw std::runtime_error("creating IDeckLinkDiscovery failed");
+    }
 
-	assert( p != NULL );
-	return  static_cast<IDeckLinkDiscovery*>(p);
-#else
-    //-----------------------------------------------------------------------------------------------------------------
-	IDeckLinkDiscovery* p = CreateDeckLinkDiscoveryInstance();
-
-	if( p == NULL )
-	{
-		throw std::runtime_error("creating IDeckLinkDiscovery failed");
-	}
-
-	return p;
-#endif
+    return p;
 }
+
+//---------------------------------------------------------------------------------------------------------------------
+inline void InitCom()  {}
+
+//---------------------------------------------------------------------------------------------------------------------
+#ifdef __APPLE__
+const REFIID IID_IUnknown = CFUUIDGetUUIDBytes(IUnknownUUID);
+#endif
+
+#endif
 
 //=====================================================================================================================
 class CDiscoveryCallback : public IDeckLinkDeviceNotificationCallback
@@ -88,8 +84,8 @@ public:
 HRESULT STDMETHODCALLTYPE CDiscoveryCallback::DeckLinkDeviceArrived( IDeckLink* pDev )
 {
     std::ostringstream sstr;
-    sstr << "CDiscoveryCallback::DeckLinkDeviceArrived: IDeckLink pointer = 0x" << std::hex << (uintptr_t)pDev
-                                                                                                        << std::endl;
+    sstr << "CDiscoveryCallback::DeckLinkDeviceArrived: IDeckLink pointer = 0x" <<
+                                            std::setw(8) << std::setfill('0') << std::hex << (uintptr_t)pDev << "\n\n";
 
     m_DevPointers.insert(pDev);
     pDev->AddRef();
@@ -104,16 +100,17 @@ HRESULT STDMETHODCALLTYPE CDiscoveryCallback::DeckLinkDeviceArrived( IDeckLink* 
 HRESULT STDMETHODCALLTYPE CDiscoveryCallback::DeckLinkDeviceRemoved( IDeckLink* pDev )
 {
     std::ostringstream sstr;
-    sstr << "CDiscoveryCallback::DeckLinkDeviceRemoved: IDeckLink pointer = 0x" << std::hex << (uintptr_t)pDev;
+    sstr << "CDiscoveryCallback::DeckLinkDeviceRemoved: IDeckLink pointer = 0x" <<
+                                                    std::setw(8) << std::setfill('0') << std::hex << (uintptr_t)pDev;
 
     if( m_DevPointers.erase(pDev) )
     {
-        sstr << " (added earlier)\n";
+        sstr << " (added earlier)\n\n";
         pDev->Release();
     }
     else
     {
-        sstr << " (unknown pointer)\n";
+        sstr << " (unknown pointer)\n\n";
     }
 
     std::cerr << sstr.str();
@@ -155,9 +152,8 @@ ULONG STDMETHODCALLTYPE CDiscoveryCallback::Release(void)
 //=====================================================================================================================
 int main( int argc, char** argv )
 {
-#ifdef _WIN32
-    CoInitialize(NULL);
-#endif
+    InitCom();
+
     int status = 0;
 
     try
@@ -174,7 +170,7 @@ int main( int argc, char** argv )
         }
         else
         {
-            std::cerr << "Error: IDeckLinkDiscovery::InstallDeviceNotifications succeeded.\n\nPress ENTER to quit.\n";
+            std::cerr << "IDeckLinkDiscovery::InstallDeviceNotifications succeeded.\n\nPress ENTER to quit...\n\n";
             std::cerr.flush();
             std::cin.ignore();
             pInst->UninstallDeviceNotifications();
